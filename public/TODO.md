@@ -1,0 +1,1 @@
+- FIX Pin infection risk plot to the top when scrolling down in mobile screen.
