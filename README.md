@@ -1,0 +1,2 @@
+# airborne.cam
+This app helps users understand how ventilation affects the indoors transmission of the SARS-CoV-2 virus. It considers a "mixing ventilation" strategy to estimate the risk of infection for a single individual exposed to virus particles. For that, it is assumed that hands are washed and that individuals are far apart from each other — i.e. no risk of short-range transmission by droplets/aerosol.
