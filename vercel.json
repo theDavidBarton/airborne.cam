@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "airborne-cam",
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": { "distDir": "build" }
+    }
+  ],
+  "alias": ["airborne.cam"]
+}

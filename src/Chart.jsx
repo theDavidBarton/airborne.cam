@@ -45,7 +45,12 @@ const Chart = ({ series, data, title, yAxisLabel, xAxisLabel }) => {
       },
       xaxis: {
         title: { text: xAxisLabel, offsetY: 10 },
-        type: "numeric"
+        type: "numeric",
+        labels: {
+          formatter: function (value) {
+            return value.toFixed(2);
+          }
+        }
       }
     }
   };
@@ -55,7 +60,6 @@ const Chart = ({ series, data, title, yAxisLabel, xAxisLabel }) => {
       options={chartData.options}
       series={chartData.series}
       type="line"
-      height={350}
     />
   );
 };

@@ -1,20 +1,32 @@
 import moment from "moment";
 
-// There's a bug here. If people=0, it will return infected=infmin. That's not the case in a custom break. It must return infected=0 //
-const infectedPeople = (people, percent, infmin) => {
+// Information on implementation found in the manual
+
+// ******************************************************
+// Code starts here
+// ******************************************************
+
+// Find infected people by comparing percentage of infected and number of infected (take maximum value)
+// const infectedPeople = (people, percent, infmin) => {
+//   const percentPeople = people * (percent / 100);
+//   const infected = infmin > percentPeople ? infmin : percentPeople;
+//   return infected;
+// };
+const infectedPeople = (people, percent, infmin, toggleInf) => {
   const percentPeople = people * (percent / 100);
-  const infected = infmin > percentPeople ? infmin : percentPeople;
+  const infected = toggleInf ? percentPeople : infmin;
   return infected;
 };
 
+// Gaussian distribution functionality
 const gaussianDistribution = (nPeople = 10, t_max = 60, t = 0) => {
   const a = nPeople;
   const b = t_max / 2;
   const c = t_max / 6;
-
   return a * Math.pow(Math.E, -Math.pow(t - b, 2) / Math.pow(2 * c, 2));
 };
 
+// Default values
 const roomCalculation = (
   Ar = 100,
   Hr = 3,
@@ -34,33 +46,13 @@ const roomCalculation = (
   customBreakDate = "12:30",
   t_customBreak = 60,
   startDate = "09:00",
-  endDate = "17:00"
+  endDate = "17:00",
+  ACHcustom = 0,
+  sFilterType = 0,
+  outsideAir = 100,
+  infChecked = "false"
 ) => {
-  //% RiskVent: Solving for the unsteady concentration of PFU (or particles) in a well-mixed room
-
-  // The equation for the concentration of virulent particles (in PFU), C(t), is:
-  // C(t) = n_inf*N_r/(V*L) + (C(t0)-n_inf*N_r/(V*L))*exp(-L*(t-t0))
-
-  // where t0 the starting time, n_inf the number of infected people, N_r the
-  // emission rate of particles, V the room volume and L the total loss rate
-  // which is the sum of viral decay, ventilation rate and gravitational settling.
-
-  // L = 1/Tres + k + lambda where Tres = 1/ACH
-
-  // The risk is evaluated by a simple exponential relationship
-  // R = 1 - exp(-Ntotal/constant) where Ntotal the total number of particles
-  // inhaled.
-
-  // Equivalently, the concentration of CO2 (in ppm), XCO2(t), is:
-  // XCO2(t) = background_CO2 + n_people*Q_CO2/(V*L) + (XCO2(t0)-n_people*Q_CO2/(V*L)-background_CO2)*exp(-L*(t-t0))
-
-  // where background_CO2 the global ~415 ppm CO2 concentration outdoors
-
-  // Clock (has to be increasing!)
-  //   start,  end,    empty/filled
-
   // Convert Time start - end to duration
-
   const t_max =
     60 *
     moment(`2000-01-01 ${endDate}`).diff(
@@ -68,10 +60,6 @@ const roomCalculation = (
       "hours",
       true
     );
-
-  // ******************************************************
-  // Code starts here
-  // ******************************************************
 
   const breakWhen =
     3600 *
@@ -85,7 +73,7 @@ const roomCalculation = (
   const peopleInst = (t_max, t) => {
     const people =
       occupancyType === 0 ? n_people : gaussianDistribution(n_people, t_max, t);
-    const infected = infectedPeople(people, infPercent, inf_min);
+    const infected = infectedPeople(people, infPercent, inf_min, infChecked);
     const hasBreak =
       t >= breakWhen && t < breakWhen + 60 * t_customBreak ? 0.0 : 1.0;
     return {
@@ -94,12 +82,146 @@ const roomCalculation = (
     };
   };
 
+  // Filter in the ventilation system based on the modes set at the interface
+  // These values of filter efficiency need changing according to
+  // https://www.venfilter.com/normativa/comparative-guide-norms-classification-air-filters
+  // Types are: (i) none - 0% (ii) HEPA () -%
+  //            (iii) ISO ePM1 -% (iv) ISO ePM2.5 -% (v) ISO ePM10 -% (vi) ISO coarse -%
+
+  //-------------------------------
+  // Fraction of suspended virus (PFU) in each class in %
+  //-------------------------------
+  // Rows: cut-off diameter
+  // Columns: [0.3-1um],[1-2.5um],[2.5-5um],[5-10um],[10-20um],[20-40um],[40-100um]
+  //-------------------------------
+  // Vertical velocity = 0 m/s
+  //0.1384    5.8893   93.9723       NaN       NaN       NaN       NaN
+  //0.0086    0.3673    5.8605   93.7636       NaN       NaN       NaN
+  //0.0007    0.0293    0.4682    7.4907   92.0111       NaN       NaN
+  //0.0001    0.0022    0.0358    0.5730    9.1790   90.2099       NaN
+  //0.0000    0.0004    0.0059    0.0947    1.5175   23.9912   74.3903
+  //-------------------------------
+  // Vertical velocity = 0.1 m/s
+  //0.1384    5.8893   93.9723       NaN       NaN       NaN       NaN
+  //0.0086    0.3673    5.8605   93.7636       NaN       NaN       NaN
+  //0.0005    0.0229    0.3658    5.8529   93.7578       NaN       NaN
+  //0.0000    0.0014    0.0227    0.3640    5.8303   93.7815       NaN
+  //0.0000    0.0002    0.0037    0.0587    0.9411   15.1371   83.8592
+
+  // Cuttoff first then velocity
+  const PM1_base = [
+    0.1384,
+    0.0086,
+    0.0007,
+    0.0001,
+    0.0,
+    0.1384,
+    0.0086,
+    0.005,
+    0.0,
+    0.0
+  ];
+  const PM2d5_base = [
+    5.8893,
+    0.3673,
+    0.0293,
+    0.0022,
+    0.0004,
+    5.8893,
+    0.3673,
+    0.0229,
+    0.0014,
+    0.0002
+  ];
+  const PM5_base = [
+    93.9723,
+    5.8605,
+    0.4682,
+    0.0358,
+    0.0059,
+    93.9723,
+    5.8605,
+    0.3658,
+    0.0227,
+    0.0037
+  ];
+  const PM10_base = [
+    0.0,
+    93.7636,
+    7.4907,
+    0.573,
+    0.0947,
+    0.0,
+    93.7636,
+    5.8529,
+    0.364,
+    0.0587
+  ];
+  const PM20_base = [
+    0.0,
+    0.0,
+    92.0111,
+    9.179,
+    1.5175,
+    0.0,
+    0.0,
+    93.7578,
+    5.8303,
+    0.9411
+  ];
+  const PM40_base = [
+    0.0,
+    0.0,
+    0.0,
+    90.2099,
+    23.9912,
+    0.0,
+    0.0,
+    0.0,
+    93.7815,
+    15.1371
+  ];
+  const PM100_base = [0.0, 0.0, 0.0, 0.0, 74.3903, 0.0, 0.0, 0.0, 0.0, 83.8592];
+
+  // we do not PM5, PM20 and PM40 since they are already accounted for in PM10, PM100 and PM100, respectively.
+  const PM1 = PM1_base[cutoffType + 5 * verticalvType] / 100.0;
+  const PM2d5 = PM1 + PM2d5_base[cutoffType + 5 * verticalvType] / 100.0;
+  const PM5 = PM2d5 + PM5_base[cutoffType + 5 * verticalvType] / 100.0;
+  const PM10 = PM5 + PM10_base[cutoffType + 5 * verticalvType] / 100.0;
+  const PM20 = PM10 + PM20_base[cutoffType + 5 * verticalvType] / 100.0;
+  const PM40 = PM20 + PM40_base[cutoffType + 5 * verticalvType] / 100.0;
+  const PM100 = PM40 + PM100_base[cutoffType + 5 * verticalvType] / 100.0;
+
+  //-------------------------------
+  // none
+  // HEPA 99.5% efficient in PM1 class and 100% everywhere else
+  // ePM1 (90%): 90% efficient in PM1 class and 100% everywhere else
+  // ePM2.5 (90%): 90% efficient in PM2.5 class and 100% everywhere else
+  // ePM10 (90%): 90% efficient in PM10 class and 100% everywhere else
+  // ISO coarse: 40% efficient in PM10 class and 100% everywhere else
+  //                       none HEPA   ePM1  ePM2.5  ePM10  coarse
+  const sFilterPM1_base = [0, 99.5, 90.0, 90.0, 90.0, 40.0];
+  const sFilterPM2d5_base = [0, 100.0, 100.0, 90.0, 90.0, 40.0];
+  const sFilterPM10_base = [0, 100.0, 100.0, 100.0, 90.0, 40.0];
+  const sFilterRest_base = [0, 100.0, 100.0, 100.0, 100.0, 100.0];
+
+  // The efficiency is like a weighted average
+  let filterEff =
+    (sFilterPM1_base[sFilterType] / 100.0) * PM1 +
+    (sFilterPM2d5_base[sFilterType] / 100.0) * (PM2d5 - PM1) +
+    (sFilterPM10_base[sFilterType] / 100.0) * (PM10 - PM2d5) +
+    (sFilterRest_base[sFilterType] / 100.0) * (PM100 - PM10);
+  //The above filter applies only to recirculated air. Outside air varies between 0--100% (variable is outsideAir)
+
   // Sets ACH based on the modes set at the interface
-  const sACH = [0.3, 1, 3, 5, 10, 25];
-  let ACH = sACH[sACHType];
+  const sACH = [0.3, 1, 3, 5, 10, 20, 999];
+  const ACH = sACHType === 6 ? ACHcustom : sACH[sACHType];
 
   // Decay rates
-  const kappa_base = [ // gravitational settling rate , 1/h, (for each cut-off diameter and vertical velocity)
+  // First five values are for zero vertical velocity and last five values are for 0.1 m/s upward vertical velocity
+  // The indices are based on the aerosol cut-off diameter
+  const kappa_base = [
+    // gravitational settling rate , 1/h
     0.39,
     0.39,
     0.39,
@@ -109,7 +231,7 @@ const roomCalculation = (
     0,
     0,
     0,
-    0,
+    0
   ];
   let kappa = kappa_base[cutoffType + 5 * verticalvType]; // ... set gravitational settling rate, 1/h
   let lambda = 0.636; // ... viral decay rate, 1/h
@@ -155,7 +277,10 @@ const roomCalculation = (
   const Activity_type_Ngen = [1, 2.5556, 6.1111]; // multiplier for exhalation rate based on activity.
 
   // Multiplier based on mask efficiency
-  const Mask_type = [0, 0.99, 0.59, 0.51]; // No mask, N95, Surgical, 3-ply Cloth from https://www.medrxiv.org/content/10.1101/2020.10.05.20207241v1
+  // No mask, N95, surgical and 3-ply cloth [medrxiv.org/content/10.1101/2020.10.05.20207241v1]
+  // 90% for N95 for safety (see manual)
+  // 1- ply cloth REF???
+  const Mask_type = [0, 0.9, 0.59, 0.51, 0.35];
 
   // Conversions with applications of mask and activity to inhalation rate and CO2 emission
   // *** the exhalation equivalent for the virus is being accounted for in N_r
@@ -165,8 +290,8 @@ const roomCalculation = (
     (co2_exhRate_ref * metabolic_rate_forCO2[activityType]) / met_ref; // ... actual CO2 emission rate, ltr/s
 
   // Here we need an "effective" N_gen for aerosol particles
-  // Ngen = [0.4527, 0.4843, 0.5890, 5.1152, 16.2196] // Ngen no vertical velocity
-  // Ngen = [0.4728, 0.5058, 0.6470, 8.6996, 30.0730] // Ngen 0.1 m/s vertical velocity
+  // First five values are for zero vertical velocity and last five values are for 0.1 m/s upward vertical velocity
+  // The indices are based on the aerosol cut-off diameter
   const Ngen_base = [
     0.4527,
     0.4843,
@@ -198,9 +323,15 @@ const roomCalculation = (
   kappa = kappa / 3600; // ... 1/s
   lambda = lambda / 3600; // ... 1/s
   inhRate = inhRate / 1000; // ... m3/s
-  const Tres = (1 / ACH) * 3600; // ... s
-  const loss_rate = 1 / Tres + kappa + lambda;
-  const loss_rate_co2 = 1 / Tres;
+
+  const ACH_fresh = (ACH * outsideAir) / 100; // ...1/h
+  const ACH_recirc = ACH * (1 - outsideAir / 100); // ... 1/h
+  const vent_fresh = ACH_fresh / 3600; // ... 1/s
+  const steril_rate = filterEff * (ACH_recirc / 3600); // 1/s
+
+  const loss_rate = vent_fresh + steril_rate + kappa + lambda;
+  const loss_rate_co2 = vent_fresh;
+
   co2_exhRate = co2_exhRate / 1000; // ,,, m3/s
   co2_exhRate = co2_exhRate * Math.pow(10, 6); // ...scale to calculate ppm in the end
 
@@ -209,7 +340,8 @@ const roomCalculation = (
   let tMax = t_max * 60;
 
   // Solver settings
-  const dt = 0.5 * 60; // ... time increment, s
+  // const dt = 0.5 * 60; // ... time increment, s
+  const dt = tMax / 400; // ... time increment, s
 
   // Initialisation
   let R = []; // ... Risk over time
@@ -266,18 +398,26 @@ const roomCalculation = (
         Math.exp(-loss_rate * dt);
 
     // CO2 Concentration
-    XCO2[i] =
-      co2_background +
-      (hasPeople * peopleInst(tMax, t).people * co2_exhRate) /
-        V /
-        loss_rate_co2 +
-      ((XCO2[i - 1] || co2_background) -
+    if (loss_rate_co2 > 0.0) {
+      XCO2[i] =
+        co2_background +
         (hasPeople * peopleInst(tMax, t).people * co2_exhRate) /
           V /
-          loss_rate_co2 -
-        co2_background) *
-        Math.exp(-loss_rate_co2 * dt);
+          loss_rate_co2 +
+        ((XCO2[i - 1] || co2_background) -
+          (hasPeople * peopleInst(tMax, t).people * co2_exhRate) /
+            V /
+            loss_rate_co2 -
+          co2_background) *
+          Math.exp(-loss_rate_co2 * dt);
+    } else {
+      // account for case where loss_rate_co2 is zero and the previous equation is not defined
+      XCO2[i] =
+        (XCO2[i - 1] || co2_background) +
+        ((hasPeople * peopleInst(tMax, t).people * co2_exhRate) / V) * dt;
+    }
 
+    // Inhaled virus
     Ninh[i] = (Ninh[i - 1] || 0) + hasPeople * inhRate * dt * C[i];
     R[i] = 1 - Math.exp(-Ninh[i] / riskConst);
   }

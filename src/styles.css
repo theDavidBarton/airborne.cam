@@ -1,16 +1,20 @@
-
 .App {
   font-family: sans-serif;
-  padding: "0px";
-  margin: "0px";
 }
 
-.sticky-wrapper {
-  position: relative;
+.sticky-wrapper2 {
+  position: "-webkit-sticky";
+}
+
+.nonsticky {
+  padding: "0px";
+}
+
+.nonsticky-middle {
+  padding-top: "0px";
 }
 
 .sticky {
-  background-color: white;
   position: sticky;
   top: 0;
   left: 0;
@@ -23,7 +27,11 @@
 }
 
 .CWidth {
-  width: 100%;
+  width: 96%;
+}
+
+.AboutLink {
+  color: grey
 }
 
 .FooterLink {
@@ -31,6 +39,10 @@
   color: black;
   padding-bottom: 12px;
   display: block;
+}
+
+.Contributors {
+  font-size: 14px;
 }
 
 h2 {
@@ -43,6 +55,11 @@ span {
 }
 
 p {
-  font-size: 16px;
+  font-size: 15px;
   line-height: 24px;
+}
+
+h4 {
+  padding: 0px;
+  margin-top: 20px;
 }
